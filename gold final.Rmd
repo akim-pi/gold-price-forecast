@@ -1,0 +1,240 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+gold = read.csv("Gold Futures Historical Data.csv")
+View(gold)
+```
+
+```{r}
+summary(gold)
+```
+
+
+```{r}
+library(tseries)
+library(forecast)
+library(lmtest)
+library(TTR)
+library(TSA)
+library(graphics)
+library(normtest)
+library(nortest)
+```
+
+
+```{r}
+data = gold$Price
+
+data.ts = ts(data)
+data.train = ts(data[1:43])
+data.test  = ts(data[44:54], start=44, end=54)
+```
+
+```{r}
+plot(data.ts,
+#main = "Plot Deret Waktu Harga Emas",
+     ylab="Harga")
+plot(data.train)
+plot(data.test)
+
+plot(gold$Price,
+     #main = "Partisi Data Latih dan Data Uji",
+     ylab = "Harga",
+     type='l', col='red', las=1)
+
+lines(gold$No[44:54], gold$Price[44:54], col='blue')
+abline(v=44, lty=2)
+
+text(21.5, 2030, "Data Training")
+text(50.2, 1800, "Data Testing")
+
+summary(data)
+```
+
+
+```{r}
+acf(data, main="")
+pacf(data, main="") # p = 1
+eacf(data) # ARIMA(1,0,0)
+
+adf.test(data.train)
+
+data.train
+```
+```{r}
+data.train.d1 = diff(data.train, differences=1)
+
+acf(data.train.d1, main="")  #q = 0
+pacf(data.train.d1, main="") #p = 0
+eacf(data.train.d1) #ARIMA = (0,1,0) (1,1,0) (2,1,0)
+
+adf.test(data.train.d1)
+
+plot(data.train.d1)
+
+data.train.d1
+```
+```{r}
+data.train.d2 = diff(data.train, differences=2)
+
+acf(data.train.d2, main="")  #q = 1
+pacf(data.train.d2, main="") #p = 1, 2
+
+#eacf(data.train.d2)
+    
+adf.test(data.train.d2)
+
+plot(data.train.d2)
+
+data.train.d2
+```
+```{r}
+model.100 = arima(data.train, order = c(1,0,0), method='ML')
+
+model.110 = arima(data.train, order = c(1,1,0), method='ML')
+model.210 = arima(data.train, order = c(2,1,0), method='ML')
+model.310 = arima(data.train, order = c(3,1,0), method='ML')
+
+model.120 = arima(data.train, order = c(1,2,0), method='ML')
+model.220 = arima(data.train, order = c(2,2,0), method='ML')
+model.021 = arima(data.train, order = c(0,2,1), method='ML')
+
+
+model.100
+
+#model.110
+#model.210
+#model.310
+
+model.120
+model.220
+model.021
+
+```
+
+```{r}
+coeftest(model.100)
+
+#coeftest(model.110)
+#coeftest(model.210)
+#coeftest(model.310)
+
+coeftest(model.120)
+coeftest(model.220)
+coeftest(model.021)
+```
+
+```{r}
+
+findError = function(x, x_fit){
+  e = x - x_fit
+  n = length(x)
+  
+  MAD = sum(abs(e))/n
+  MSD = sum(e^2)/n
+  MAPE = (sum(abs(e)/x)/n)*100
+  
+  result = list("MAD" = MAD, 
+                "MSD" = MSD, 
+                "MAPE" = MAPE)
+  
+  return(result)
+}
+
+#findError(data.test, forecast.test$mean)
+
+findError(data.train, fitted(model.100))$MAPE
+findError(data.train, fitted(model.120))$MAPE
+findError(data.train, fitted(model.220))$MAPE
+findError(data.train, fitted(model.021))$MAPE
+```
+
+```{r}
+diagnostik = function(model){
+  par(mfrow=c(1,4))
+  plot(residuals(model),ylab ='Residuals',type='o'); 
+  abline(h=0)
+  
+  qqnorm(residuals(model)); qqline(residuals(model))
+  hist(model$residuals)
+  
+  acf(model$residuals)
+  
+  print(Box.test(model$residuals, type = "Ljung-Box"))
+  print(ks.test(model$residuals, "pnorm", mean=mean(model$residuals), sd=sd(model$residuals)))
+}
+```
+
+```{r}
+diagnostik(model.100)
+diagnostik(model.120)
+diagnostik(model.220)
+diagnostik(model.021)
+```
+
+```{r}
+model.121 = arima(data.train, order = c(1,2,1), method='ML')
+model.022 = arima(data.train, order = c(0,2,2), method='ML')
+
+model.021
+model.121
+model.022
+
+coeftest(model.021)
+coeftest(model.121)
+coeftest(model.022)
+```
+
+```{r}
+forecast.test = forecast(data.train, model = model.021, h = 10)
+forecast.test$mean
+
+plot(forecast.test)
+lines(data)
+abline(v=44, lty=2, col="red")
+```
+```{r}
+
+```
+```{r}
+forecast.final = forecast(data.ts, model = model.021, h = 7)
+forecast.final$mean
+
+plot(forecast.final)
+plot(data.ts)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

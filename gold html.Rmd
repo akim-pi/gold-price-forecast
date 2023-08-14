@@ -1,0 +1,413 @@
+---
+title: "Peramalan Harga Emas Menggunakan Model ARIMA"
+author: "Abdul Hakim"
+date: "May 18th, 2022"
+output: html_document
+---
+> **STK352 Metode Peramalan Deret Waktu**  
+
+Tujuan pemrograman ini adalah untuk permalan deret waktu menggunakan data harga emas yang diambil dari [link](https://id.investing.com/commodities/gold-historical-data) ini. Model yang akan digunakan adalah model ARIMA dan meramal harga emas sebanyak 7 hari kedepan.
+
+
+Tahapan yang dilakukan untuk membuat model ARIMA adalah:  
+
+1. [Eksplorasi Data]
+2. [Praproses Data]
+3. [Model Tentatif ARIMA]
+4. [Pengujian Parameter] 
+5. [Diagnostik Model]
+6. [Pemilihan Model]  
+7. [Overfitting]
+8. [Validasi Model]
+9. [Forecast]
+10. [Kesimpulan]
+
+# Eksplorasi Data
+```{r read-data}
+gold = read.csv("Gold Futures Historical Data.csv")
+View(gold)
+```
+
+```{r}
+summary(gold)
+```
+
+```{r}
+data = gold$Price
+
+data.ts = ts(data)
+
+plot(data.ts,
+     main = "Plot Deret Waktu Harga Emas",
+     ylab="Harga")
+```
+
+# Library
+```{r results='hide', message=FALSE}
+library(tseries)
+library(forecast)
+library(lmtest)
+library(TTR)
+library(TSA)
+library(graphics)
+library(normtest)
+library(nortest)
+```
+
+# Praproses Data
+## Partisi Data
+Data dipartisi menjadi data latih dan data uji masing-masing sebesar 80% dan 20%
+```{r}
+data.train = ts(data[1:43])
+data.test  = ts(data[44:54], start=44, end=54)
+```
+
+```{r}
+plot(data.train)
+plot(data.test)
+
+plot(gold$Price,
+     main = "Partisi Data Latih dan Data Uji",
+     ylab = "Harga",
+     type='l', col='red', las=1)
+
+lines(gold$No[44:54], gold$Price[44:54], col='blue')
+abline(v=44, lty=2)
+
+text(21.5, 2030, "Data Training")
+text(50.2, 1800, "Data Testing")
+```
+
+# Model Tentatif ARIMA
+Model ARIMA dibuat dengan memeriksa stasioneritas data menggunakan Uji Dickey Fuller serta plot ACF. Uji Dickey-Fuller memiliki hipotesis seperti berikut:  
+$H_0$ = Rataan data stasioner  
+$H_1$ = Rataan data tidak stasioner  
+
+Jika data belum stasioner, maka dilakukan pembedaan satu tahap. Model terdiri dari ARIMA(q,d,p) dengan **q** adalah komponen *autoregresif* (AR) dan **p** adalah komponen *moving average* pada model. Banyak pembedaan dilambangkan oleh **d**.  
+
+Pembentukan model tentatif dilakukan menggunakan plot ACF untuk komponen MA, plot PACF untuk komponen AR dan EACF untuk ARMA.
+
+```{r}
+plot(data.train)
+
+# Plot ACF
+acf(data)
+
+# Plot PACF
+pacf(data) # p = 1
+
+# EACF
+eacf(data) # ARIMA = (1,0,0)
+
+# Uji Dickey-Fuller
+adf.test(data.train)
+```
+**Stasioneritas Data**  
+Berdasarkan hasil Uji ADF, didapatkan p-value sebesar 0.7233 yaitu lebih besar dari 5% (0.05) sehingga dapat disimpukan bahwa data belum stasioner.  
+
+**Model Tentatif**  
+Diperlihat pada plot bahwa:  
+1. ACF: tails off  
+2. PACF: cuts off (AR(1))  
+3. EACF: ARMA(1,0)  
+
+Model yang dapat dibuat adalah AR(1).
+
+## Pembedaan 1
+
+```{r}
+# Pembedaan d=1
+data.train.d1 = diff(data.train, differences=1)
+plot(data.train.d1)
+
+# Plot ACF
+acf(data.train.d1)  #q = 0
+
+# Plot PACF
+pacf(data.train.d1) #p = 0
+
+# EACF
+eacf(data.train.d1) #ARIMA = (0,1,0) (1,1,0) (2,1,0)
+
+# Uji Dickey-Fuller
+adf.test(data.train.d1)
+```
+**Stasioneritas Data**  
+Berdasarkan hasil Uji ADF, didapatkan p-value sebesar 0.1256 yaitu lebih besar dari 5% (0.05) sehingga dapat disimpukan bahwa data belum stasioner.  
+
+**Model Tentatif**  
+Diperlihat pada plot bahwa:  
+1. ACF: tails-off  
+2. PACF: tails-off  
+3. EACF: AR(0), AR(1), AR(2)  
+
+Model yang dapat dibuat adalah AR(0), AR(1), dan AR(2).
+
+## Pembedaan 2
+```{r}
+# Pembedaan d=2
+data.train.d2 = diff(data.train, differences=2)
+plot(data.train.d2)
+
+# Plot ACF
+acf(data.train.d2)  #q = 1
+
+# Plot PACF
+pacf(data.train.d2, main="") #p = 1, 2
+
+# Uji Dickey-Fuller
+adf.test(data.train.d2)
+```
+
+**Stasioneritas Data**  
+Berdasarkan hasil Uji ADF, didapatkan p-value sebesar 0.01 yaitu lebih besar dari 5% (0.05) sehingga dapat disimpukan bahwa data sudah stasioner.  
+
+**Model Tentatif**  
+Diperlihat pada plot bahwa:  
+1. ACF: cut2-off lag 1  
+2. PACF: cuts-off lag 1, 2  
+3. EACF: n/a  
+
+Model yang dapat dibuat adalah MA(1), AR(1), dan AR(2).
+
+## Pembuatan Model
+```{r}
+# ARIMA(1,0,0)
+model.100 = arima(data.train, order = c(1,0,0), method='ML')
+model.100
+
+# ARIMA(1,2,0)
+model.120 = arima(data.train, order = c(1,2,0), method='ML')
+model.120
+
+# ARIMA(2,2,0)
+model.220 = arima(data.train, order = c(2,2,0), method='ML')
+model.220
+
+# ARIMA(0,2,1)
+model.021 = arima(data.train, order = c(0,2,1), method='ML')
+model.021
+```
+
+# Pengujian Parameter
+Pengujian pamater menggunakan inference of estimated coeffiecent dengan membandingkan nilai-p setiap komponen ARIMA. Jika nilai-p lebih kecil dari 5% (<0.05), maka parameter dianggap signifikan terhadap modelnya.
+```{r}
+# ARIMA(1,0,0)
+coeftest(model.100)
+
+# ARIMA(1,2,0)
+coeftest(model.120)
+
+# ARIMA(2,2,0)
+coeftest(model.220)
+
+# ARIMA(0,2,1)
+coeftest(model.021)
+```
+Hasil dari masing-masing pengujian adalah:  
+1. ARIMA(1,0,0): AR(1) signifikan  
+2. ARIMA(1,2,0): AR(1) signifikan  
+3. ARIMA(2,2,0): AR(1) dan AR(2) signifikan  
+4. ARIMA(0,2,1): MA(1) signifikan  
+
+Berdasarkan hasil yang didapatkan, semua model tentatif layak digunakan.
+
+## Error Model
+```{r}
+# Fungsi mencari MAD, MSD dan MAPE
+findError = function(x, x_fit){
+  e = x - x_fit
+  n = length(x)
+  
+  MAD = sum(abs(e))/n
+  MSD = sum(e^2)/n
+  MAPE = (sum(abs(e)/x)/n)*100
+  
+  result = matrix(c(MAD, MSD, MAPE), nrow=1)
+  colnames(result) = c("MAD", "MSD", "MAPE")
+  rownames(result) = "nilai"
+  return(result)
+}
+```
+
+```{r}
+# Error ARIMA(1,0,0)
+findError(data.train, fitted(model.100))
+
+# Error ARIMA(1,2,0)
+findError(data.train, fitted(model.120))
+
+# Error ARIMA(2,2),0)
+findError(data.train, fitted(model.220))
+
+# Error ARIMA(0,2,2)
+findError(data.train, fitted(model.021))
+```
+
+# Diagnostik Model
+Diagnostik model ARIMA dilakukan untuk memeriksa jika model memenuhi beberapa asumsi sisaan yaitu:  
+
+1. Normalitas sisaan
+2. Kebebasan sisaan
+3. Nilai tengah sisaan
+
+**Normalitas Sisaan**  
+Normalitas sisaan dapat diperiksa menggunakan QQ-plot, histogram sisaan atau plot sisaan~order. Uji formal normalitas sisaan dapat dilakukan menggunakan uji Kolmogorov-Smirnov dengan hipotesis seperti berikut:  
+$H_0$ : Sisaan tersebar normal  
+$H_1$ : Sisaan tidak menyebar normal  
+Dengan syarat menerima $H_0$ jika nilai-p lebih besar dari 5% (>0.05).  
+
+**Kebebasan Sisaan**  
+Kebebasan sisaan (autokorelasi) dapat diperiksa menggunakan plot ACF sisaan dan uji formal Ljung-Box dengan hipotesis seperti berikut:  
+$H_0$ : Sisaan tersebar normal  
+$H_1$ : Sisaan tidak menyebar normal  
+Dengan nyarat menerima $H_0$ jika nilai-p lebih besar dari 5% (>0.05).  
+
+**Nilai tengah sisaan**  
+Nilai tengah sisaan dapat dilihat menggunakan plot sisaan terhadap order dan uji formal t-test dengan hipotesis seperti berikut:  
+$H_0$ : Nilai tengah 0  
+$H_1$ : Nilai tengah tidak 0   
+Dengan nyarat menerima $H_0$ jika nilai-p lebih besar dari 5% (>0.05).  
+
+Untuk memudahkan proses diagnosis, dibuat fungsi berikut.
+
+```{r}
+diagnostik = function(model){
+  par(mfrow=c(2,2))
+  
+  # Plot sisaan terhadap order
+  plot(residuals(model), ylab ='Residuals', type='o'); 
+  abline(h=0)
+  
+  # QQ plot
+  qqnorm(residuals(model))
+  qqline(residuals(model))
+  
+  # Histogram sisaan
+  hist(model$residuals)
+  
+  # Plot ACF sisaan
+  acf(model$residuals)
+  
+  # Uji Ljung-Box
+  print(Box.test(model$residuals, type = "Ljung-Box"))
+  
+  # Uji Kolmogorov-Smirnov
+  print(ks.test(model$residuals, "pnorm", mean=mean(model$residuals), sd=sd(model$residuals)))
+  
+  # uji t-test
+  print(t.test(model$residuals, mu = 0, alternative = "two.sided"))
+}
+```
+
+```{r}
+# Diagnostik ARIMA(1,0,0)
+diagnostik(model.100)
+
+# Diagnostik ARIMA(1,2,0)
+diagnostik(model.120)
+
+# Diagnostik ARIMA(2,2,0)
+diagnostik(model.220)
+
+# Diagnostik ARIMA(0,2,1)
+diagnostik(model.021)
+```
+Berdasarkan hasil yang didapatkan diatas menggunakan uji plot dan uji formal bahwa semua model tentatif ARIMA telah memenuhi asumsi sisaan.
+
+# Pemilihan Model
+Pemilihan model dilakukan dengan melihat nilai AIC dan error terbaik diantara model-model yang telah dibuat. Dari hasil-hasil yang didapatkan sebelumnya, terlampir nilai AIC dan error masing-masing model:  
+
+Model        | AIC    | MAPE | MSD   | MAD 
+------------ | ------ | ---- | ----- | -----
+ARIMA(1,2,0) | 366.41 | 0.81 | 382.7 | 14.8
+ARIMA(2,2,0) | 359.31 | 0.70 | 302.1 | 12.9
+ARIMA(0,2,1) | 349.35 | 0.59 | 232.0 | 10.9
+  
+Dari hasil tabel di atas, terlihat bahwa model **ARIMA(0,2,1)** memiliki nilai AIC dan error terkecil. Maka, model ARIMA(0,2,1) akan digunakan sebagai model terbaik.
+
+# Overfitting
+Overfitting dilakukan pada model yang terpilih untuk melihat model yang lebih umum yang mendekati model terbaik yang telah didapatkan. Proses overfitting menambah nilai p dan q sebesar satu satuan. Karena model yang terpilih adalah ARIMA(0,2,1), maka model overfitting yang dilakukan adalah **ARIMA(1,2,1)** dan **ARIMA(0,2,2)**. 
+
+```{r}
+# ARIMA(1,2,1)
+model.121 = arima(data.train, order = c(1,2,1), method='ML')
+
+# ARIMA(0,2,2)
+model.022 = arima(data.train, order = c(0,2,2), method='ML')
+```
+
+
+```{r}
+model.121
+model.022
+```
+
+## Pengujian Parameter
+```{r}
+# ARIMA(1,2,1)
+coeftest(model.121)
+
+# ARIMA(0,2,2)
+coeftest(model.022)
+```
+```{r}
+# Error ARIMA(1,2,1)
+findError(data.train, fitted(model.121))
+
+# Error ARIMA(0,2,2)
+findError(data.train, fitted(model.022))
+```
+
+
+Ditemukan bahwa model overfitting memiliki parameter yang tidak signifikan, sehingga model yang digunakan tetap **ARIMA(0,2,1)**.
+
+# Validasi Model
+Validasi model dilakukan untuk memeriksa kebaikan model terhadap data baru dengan melihat error forecasting terhadap data uji. Karena data uji sebanyak 10 observasi, maka dilakukan forecasting 10 observasi.
+```{r}
+forecast.test = forecast(data.train, model = model.021, h = 10)
+forecast.test
+```
+
+```{r}
+findError(data.test, forecast.test$mean)
+```
+
+```{r}
+plot(forecast.test)
+lines(data)
+abline(v=44, lty=2, col="red")
+```
+
+Hasil error yang didapatkan sangat kecil dengan nilai MAPE 2.85% lebih kecil dari 10%. Oleh karena itu, dapat dikatakan bahwa model ARIMA(0,2,1) dapat digunakan untuk meramal data harga emas.  
+
+Model ARIMA(0,2,1) memiliki nilai q=0, d=2, dan p=1 dengan parameter MA(1) adalah $\theta_1 = -1.0$. Sehingga model ARIMA menggunakan backshift operator adalah seperti berikut:
+
+\begin{align*}
+(1-B)^2 Y_t & = (1-\theta_1 B)e_t \\
+(1-2B+B^2)Y_t & = (1-\theta_1 B)e_t \\
+Y_t-2Y_{t-1}+Y_{t-2} & = e_t-\theta_1 e_{t-1} \\
+Y_t & = 2Y_{t-1}-Y_{t-2}+e_t-\theta_1 e_{t-1} \\
+Y_t & = 2Y_{t-1}-Y_{t-2}+e_t+ e_{t-1} \\
+\end{align*}
+
+# Forecast
+Menggunakan model ARIMA(0,2,1), harga emas diramal sebanyak 7 hari kedepan dengan hasil seperti berikut
+```{r}
+forecast.final = forecast(data.ts, model = model.021, h = 7)
+forecast.final
+
+# Forecast harga emas
+plot(forecast.final$mean, type="b",
+     ylab="Harga",
+     xlim=c(0, 60), ylim=c(1780, 2050),
+     )
+lines(fitted(model.100), lty=2, col="red")
+lines(data.ts)
+```
+```{r}
+fitted(model.021)
+```
+
+# Kesimpulan
+Peramalan harga emas 7 hari kedepan pada tanggal 15 Maret 2022 hinnga 21 Maret menggunakan ARIMA(0,2,1) adalah  1960.121, 1963.042, 1963.042, 1968.883, 1971.804, 1974.725 dan 1977.646 dengan nilai MAPE sebesar 2.84%.
